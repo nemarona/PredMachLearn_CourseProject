@@ -1,0 +1,73 @@
+---
+title: "Practical Machine Learning Course Project Report"
+author: "Eduardo Rodríguez"
+date: "October 24, 2015"
+output: html_document
+---
+
+```{r, include=FALSE, cache=FALSE}
+library("knitr")
+# Set global chunk options
+opts_chunk$set(fig.align='center', fig.show='hold')
+# Set global hooks
+knit_hooks$set(inline = identity)
+# Load necessary R packages
+library("dplyr")
+library("ggplot2")
+library("caret")
+```
+
+# Introduction
+
+This is the Course Project Report for Practical Machine Learning.
+
+# Model building
+
+We use the RRF ("Regularized Random Forest") method from the caret R package
+to fit a random forest model to the data.
+
+```{r, echo=FALSE}
+# First, download the data
+
+trainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+setwd("/home/eduardo/datascience/coursera/8-predmachlearn/CP/")
+
+trainFile <- "pml-training.csv"
+if (!file.exists(trainFile)) {
+    download.file(url = trainURL, destfile = trainFile, method = "curl")
+}
+
+testFile <- "pml-testing.csv"
+if (!file.exists(testFile)) {
+    download.file(url = testURL, destfile = testFile, method = "curl")
+}
+
+pmlTrain <- read.csv(trainFile, nrows = 19630)
+pmlTest <- read.csv(testFile)
+
+# Create training and testing subsets (from the original training data)
+
+inTrain <- createDataPartition(pmlTrain$classe, p = 0.7, list = FALSE)
+training <- pmlTrain[ inTrain,]
+testing <- pmlTrain[-inTrain,]
+
+# Eliminate useless variables and separate dependent from independent
+
+Xtrain <- select(training, -(X:num_window), -classe)
+Ytrain <- select(training, classe)
+Xtest <- select(testing, -(X:num_window), -classe)
+Ytest <- select(testing, classe)
+```
+
+# Cross-validation
+
+Random forest algorithms perform cross validation as an integral part
+of the training process, so it is not necessary to add an extra
+cross-validation step.
+
+# Out of sample error
+
+# Predictions
+
