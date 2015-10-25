@@ -5,27 +5,7 @@ date: "October 25, 2015"
 output: html_document
 ---
 
-```{r, include=FALSE, cache=FALSE}
-library("knitr")
 
-# Set global chunk options
-opts_chunk$set(fig.align='center', fig.show='hold')
-
-# Set global hooks
-knit_hooks$set(inline = identity)
-
-# Load necessary R packages
-library("ggplot2")
-library("caret")
-library("dplyr")
-
-# Set same seed as when model building
-set.seed(314761)
-
-# Load model created by model-building.R
-setwd("~/Dropbox/eduardo/datascience/coursera/8-predmachlearn/CP/PredMachLearn_CourseProject/")
-load("m1.RData")
-```
 
 
 ## Introduction
@@ -62,19 +42,22 @@ to split our data into "training" and "testing" sets, with about 70%
 of all data allocated to the "training" set.
 
 Our model is a random forest using all 52 predictors:
-```{r, echo=FALSE}
-m1$call
+
+```
+## train.default(x = trainX, y = trainY, method = "rf")
 ```
 The most important variables, arranged according to mean decrease in Gini impurity
 (higher decrease means lower Gini impurity, which is better),
 turn out to be
-```{r, echo=FALSE}
-imp <- as.data.frame(m1$finalModel$importance)
-imp <- imp %>%
-    mutate(feature = rownames(imp)) %>%
-    select(feature, MeanDecreaseGini) %>%
-    arrange(desc(MeanDecreaseGini))
-head(imp)
+
+```
+##             feature MeanDecreaseGini
+## 1         roll_belt        1427.7085
+## 2     pitch_forearm         844.0624
+## 3          yaw_belt         779.4472
+## 4 magnet_dumbbell_z         642.6414
+## 5        pitch_belt         642.5693
+## 6 magnet_dumbbell_y         618.9603
 ```
 
 
@@ -87,47 +70,50 @@ cross-validation step.
 
 ## Out-of-sample error
 
-```{r, include=FALSE}
-trainFile <- "pml-training.csv"
-pmlTrain <- read.csv(trainFile, nrows = 19630, stringsAsFactors = FALSE)
-pmlY <- pmlTrain$classe
 
-# Eliminate uninteresting variables and NAs
-pmlTrain <- pmlTrain[, -160]
-pmlTrain <- pmlTrain[, -(1:7)]
 
-nc <- ncol(pmlTrain)
-nna <- numeric(nc)
-for (c in 1:nc) {
-    nna[c] <- sum(is.na(as.numeric(pmlTrain[, c])))
-}
-nacols <- which(nna > 19000)
+The random forest algorithm provides predictions for all rows in the
+training data set, computed using only out-of-bag samples.
+The out-of-bag error rate is computed for each observation.
+Its minimum, mean, and maximum values are
 
-pmlTrain <- pmlTrain[, -nacols]
-
-# Create training and testing subsets (from the original training data)
-inTrain <- createDataPartition(pmlY, p = 0.7, list = FALSE)
-trainX <- pmlTrain[inTrain,]
-testX <- pmlTrain[-inTrain,]
-
-trainY <- pmlY[inTrain]
-testY <- pmlY[-inTrain]
-
-p1 <- predict(m1, newdata = testX)
+```
+## [1] 0.001280082
 ```
 
+```
+## [1] 0.01006085
+```
+
+```
+## [1] 0.1281139
+```
 The confusion matrix shows how accurately can we predict a particular result,
 how many times (and how) we get it wrong, and the classification error.
-The random forest algorithm provides an estimate
-computed using only out-of-bag samples from the training data:
-```{r, echo=FALSE}
-cm.auto <- m1$finalModel$confusion
-print(cm.auto)
+It is also based on out-of-bag samples:
+
+```
+##      A    B    C    D    E class.error
+## A 3900    4    1    0    1 0.001536098
+## B   22 2629    6    1    0 0.010910459
+## C    0   16 2373    7    0 0.009599332
+## D    0    0   30 2219    3 0.014653641
+## E    0    1    6    9 2509 0.006336634
+```
+
+```
+##      A    B    C    D    E class.error
+## A 3900    4    1    0    1 0.001536098
+## B   22 2629    6    1    0 0.010910459
+## C    0   16 2373    7    0 0.009599332
+## D    0    0   30 2219    3 0.014653641
+## E    0    1    6    9 2509 0.006336634
 ```
 To check the accuracy of these estimates, we compute a confusion matrix
 "by hand" by applying our prediction algorithm to the test data
 (that 30% of all data that we reserved at the beginning).
-```{r, echo=FALSE}
+
+```r
 cm <- table(p1, testY)
 cerr <- numeric(5)
 for (r in 1:5) {
@@ -136,6 +122,15 @@ for (r in 1:5) {
 cm <- cbind(cm ,cerr)
 colnames(cm)[6] <- "class.error"
 print(cm)
+```
+
+```
+##      A    B    C   D    E class.error
+## A 1674    6    0   0    0 0.003571429
+## B    0 1128    2   1    0 0.002652520
+## C    0    5 1017   9    1 0.014534884
+## D    0    0    7 952    5 0.012448133
+## E    0    0    0   2 1076 0.001855288
 ```
 Classification errors can be up to a factor of two greater in this
 confusion matrix than in the one computed automatically by the algorithm,
@@ -147,27 +142,12 @@ but nevertheless never become higher than about 1%.
 The following plot shows predicted values for all the testing data.
 Different classes are given different colors;
 right and wrong predictions are distinguished by different shapes.
-```{r, echo=FALSE}
-plotme <- testX %>%
-    select(roll_belt, pitch_forearm) %>%
-    mutate(pred.class = p1, act.class = testY, result = pred.class == act.class)
-g <- ggplot(plotme, aes(x = roll_belt, y = pitch_forearm))
-g <- g + geom_point(aes(colour = pred.class, shape = result), size = 2)
-print(g)
-```
+<img src="figure/unnamed-chunk-8-1.png" title="plot of chunk unnamed-chunk-8" alt="plot of chunk unnamed-chunk-8" style="display: block; margin: auto;" />
 The fact that one class can be found in several different places in this plot
 shows that these two variables are insufficient by themselves to produce
 a prediction.
 Choosing a different pair of variables gives a fresh perspective:
-```{r, echo=FALSE}
-plotme <- testX %>%
-    select(yaw_belt, magnet_dumbbell_z) %>%
-    mutate(pred.class = p1, act.class = testY, result = pred.class == act.class)
-g <- ggplot(plotme, aes(x = yaw_belt, y = magnet_dumbbell_z))
-g <- g + geom_point(aes(colour = pred.class, shape = result), size = 2)
-# g <- g + ylim(-750, 750)
-print(g)
-```
+<img src="figure/unnamed-chunk-9-1.png" title="plot of chunk unnamed-chunk-9" alt="plot of chunk unnamed-chunk-9" style="display: block; margin: auto;" />
 
 
 ## Final comments
