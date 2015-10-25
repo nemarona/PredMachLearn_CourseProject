@@ -1,7 +1,7 @@
 ---
 title: "Practical Machine Learning Course Project Report"
 author: "Eduardo Rodríguez"
-date: "October 24, 2015"
+date: "October 25, 2015"
 output: html_document
 ---
 
@@ -12,62 +12,139 @@ opts_chunk$set(fig.align='center', fig.show='hold')
 # Set global hooks
 knit_hooks$set(inline = identity)
 # Load necessary R packages
-library("dplyr")
 library("ggplot2")
 library("caret")
+library("dplyr")
+set.seed(314761)
+load("m1.RData")
 ```
 
-# Introduction
+## Introduction
 
-This is the Course Project Report for Practical Machine Learning.
+This is the Course Project Report for the Practical Machine Learning class
+at Coursera.
 
-# Model building
+The goal of this project is to predict, using data collected from
+wearable devices, whether a person is correctly performing an exercise or not.
+The training data have information from several subjects,
+who are each wearing four data-collecting devices.
+Each record is classified as either correct ("A") or incorrect,
+with four possible common mistakes identified as "B", "C", "D", and "E".
 
-We use the RRF ("Regularized Random Forest") method from the caret R package
-to fit a random forest model to the data.
+## Pre-processing
 
+The training data comprise 19,622 observations of 160 variables.
+The first seven variables identify the subject, the time, and provide some
+additional information, none of which is relevant for our prediction algorithm.
+The last variable, `classe`, is the one we want to predict.
+This leaves us with 152 predictors, all of them numerical.
+Closer inspection reveals that exactly 100 of these (about 2/3 of the total)
+have a very high proportion of missing values (greater than 19,000/19,622),
+and hence are useless for prediction purposes.
+
+We will build our model using the remaining 52 predictors.
+
+
+## Model building
+
+We first use the `createDataPartition()` function from the R `caret` package
+to split our data into "training" and "testing" sets, with about 70%
+of all data allocated to the "training" set.
+
+Our model is a random forest using all 52 predictors:
 ```{r, echo=FALSE}
-# First, download the data
-
-trainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
-testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
-
-setwd("/home/eduardo/datascience/coursera/8-predmachlearn/CP/")
-
-trainFile <- "pml-training.csv"
-if (!file.exists(trainFile)) {
-    download.file(url = trainURL, destfile = trainFile, method = "curl")
-}
-
-testFile <- "pml-testing.csv"
-if (!file.exists(testFile)) {
-    download.file(url = testURL, destfile = testFile, method = "curl")
-}
-
-pmlTrain <- read.csv(trainFile, nrows = 19630)
-pmlTest <- read.csv(testFile)
-
-# Create training and testing subsets (from the original training data)
-
-inTrain <- createDataPartition(pmlTrain$classe, p = 0.7, list = FALSE)
-training <- pmlTrain[ inTrain,]
-testing <- pmlTrain[-inTrain,]
-
-# Eliminate useless variables and separate dependent from independent
-
-Xtrain <- select(training, -(X:num_window), -classe)
-Ytrain <- select(training, classe)
-Xtest <- select(testing, -(X:num_window), -classe)
-Ytest <- select(testing, classe)
+m1$call
+```
+The most important variables, arranged according to Gini index, turn out to be
+```{r, echo=FALSE}
+imp <- as.data.frame(m1$finalModel$importance)
+imp <- imp %>%
+    mutate(feature = rownames(imp), Gini = MeanDecreaseGini) %>%
+    select(feature, Gini) %>%
+    arrange(desc(Gini))
+head(imp)
 ```
 
-# Cross-validation
+
+## Cross-validation
 
 Random forest algorithms perform cross validation as an integral part
 of the training process, so it is not necessary to add an extra
 cross-validation step.
 
-# Out of sample error
+## Out-of-sample error
 
-# Predictions
+The random forest algorithm provides predictions for all rows in the
+training data set, computed using only out-of-bag samples.
+The out-of-bag error rate is computed for each observation.
+Its minimum, mean, and maximum values are
+```{r, echo=FALSE}
+err <- m1$finalModel$err.rate
+min(err)
+mean(err)
+max(err)
+```
+The confusion matrix shows how accurately can we predict a particular result,
+how many times (and how) we get it wrong, and the classification error.
+It is also based on out-of-bag samples:
+```{r, echo=FALSE}
+print(m1$finalModel$confusion)
+```
+
+## Predictions
+
+```{r, include=FALSE}
+trainFile <- "pml-training.csv"
+pmlTrain <- read.csv(trainFile, nrows = 19630, stringsAsFactors = FALSE)
+pmlY <- pmlTrain$classe
+
+# Eliminate uninteresting variables and NAs
+pmlTrain <- pmlTrain[, -160]
+pmlTrain <- pmlTrain[, -(1:7)]
+nc <- ncol(pmlTrain)
+nna <- numeric(nc)
+for (c in 1:nc) {
+    nna[c] <- sum(is.na(as.numeric(pmlTrain[, c])))
+}
+nacols <- which(nna > 19000)
+pmlTrain <- pmlTrain[, -nacols]
+
+p1 <- predict(m1, newdata = pmlTrain)
+```
+
+The following plot shows predicted values for all the training data.
+Different classes are given different colors;
+right and wrong predictions are distinguished by different shapes.
+```{r, echo=FALSE}
+plotme <- pmlTrain %>%
+    select(roll_belt, pitch_forearm) %>%
+    mutate(pred.class = p1, act.class = pmlY, result = pred.class == act.class)
+g <- ggplot(plotme, aes(x = roll_belt, y = pitch_forearm))
+g <- g + geom_point(aes(colour = pred.class, shape = result), size = 2)
+print(g)
+```
+The fact that one class can be found in several different places in this plot
+shows that these two variables are insufficient by themselves to produce
+a prediction.
+Choosing a different pair of variables gives a fresh perspective:
+```{r, echo=FALSE}
+plotme <- pmlTrain %>%
+    select(yaw_belt, magnet_dumbbell_z) %>%
+    mutate(pred.class = p1, act.class = pmlY, result = pred.class == act.class)
+g <- ggplot(plotme, aes(x = yaw_belt, y = magnet_dumbbell_z))
+g <- g + geom_point(aes(colour = pred.class, shape = result), size = 2)
+# g <- g + ylim(-750, 750)
+print(g)
+```
+
+## Final comments
+
+To improve interpretability, it would be desirable to restrict the number
+of features included in the model to the bare minimum necessary to achieve
+an acceptable prediction accuracy.
+
+The algorithms in the `RRF` (Regularized Random Forest) package offer
+automated feature selection, which may help reduce the total number of features.
+Unfortunately, use of `method = "RRF"` in our call to the `train` function
+always resulted in R crashing.
 
