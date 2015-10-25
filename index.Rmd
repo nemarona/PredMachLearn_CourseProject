@@ -7,17 +7,26 @@ output: html_document
 
 ```{r, include=FALSE, cache=FALSE}
 library("knitr")
+
 # Set global chunk options
 opts_chunk$set(fig.align='center', fig.show='hold')
+
 # Set global hooks
 knit_hooks$set(inline = identity)
+
 # Load necessary R packages
 library("ggplot2")
 library("caret")
 library("dplyr")
+
+# Set same seed as when model building
 set.seed(314761)
+
+# Load model created by model-building.R
+setwd("~/Dropbox/eduardo/datascience/coursera/8-predmachlearn/CP/PredMachLearn_CourseProject/")
 load("m1.RData")
 ```
+
 
 ## Introduction
 
@@ -29,7 +38,8 @@ wearable devices, whether a person is correctly performing an exercise or not.
 The training data have information from several subjects,
 who are each wearing four data-collecting devices.
 Each record is classified as either correct ("A") or incorrect,
-with four possible common mistakes identified as "B", "C", "D", and "E".
+with four possible common mistakes identified as "B," "C," "D," and "E."
+
 
 ## Pre-processing
 
@@ -55,13 +65,15 @@ Our model is a random forest using all 52 predictors:
 ```{r, echo=FALSE}
 m1$call
 ```
-The most important variables, arranged according to Gini index, turn out to be
+The most important variables, arranged according to mean decrease in Gini impurity
+(higher decrease means lower Gini impurity, which is better),
+turn out to be
 ```{r, echo=FALSE}
 imp <- as.data.frame(m1$finalModel$importance)
 imp <- imp %>%
-    mutate(feature = rownames(imp), Gini = MeanDecreaseGini) %>%
-    select(feature, Gini) %>%
-    arrange(desc(Gini))
+    mutate(feature = rownames(imp)) %>%
+    select(feature, MeanDecreaseGini) %>%
+    arrange(desc(MeanDecreaseGini))
 head(imp)
 ```
 
@@ -72,26 +84,8 @@ Random forest algorithms perform cross validation as an integral part
 of the training process, so it is not necessary to add an extra
 cross-validation step.
 
+
 ## Out-of-sample error
-
-The random forest algorithm provides predictions for all rows in the
-training data set, computed using only out-of-bag samples.
-The out-of-bag error rate is computed for each observation.
-Its minimum, mean, and maximum values are
-```{r, echo=FALSE}
-err <- m1$finalModel$err.rate
-min(err)
-mean(err)
-max(err)
-```
-The confusion matrix shows how accurately can we predict a particular result,
-how many times (and how) we get it wrong, and the classification error.
-It is also based on out-of-bag samples:
-```{r, echo=FALSE}
-print(m1$finalModel$confusion)
-```
-
-## Predictions
 
 ```{r, include=FALSE}
 trainFile <- "pml-training.csv"
@@ -101,24 +95,62 @@ pmlY <- pmlTrain$classe
 # Eliminate uninteresting variables and NAs
 pmlTrain <- pmlTrain[, -160]
 pmlTrain <- pmlTrain[, -(1:7)]
+
 nc <- ncol(pmlTrain)
 nna <- numeric(nc)
 for (c in 1:nc) {
     nna[c] <- sum(is.na(as.numeric(pmlTrain[, c])))
 }
 nacols <- which(nna > 19000)
+
 pmlTrain <- pmlTrain[, -nacols]
 
-p1 <- predict(m1, newdata = pmlTrain)
+# Create training and testing subsets (from the original training data)
+inTrain <- createDataPartition(pmlY, p = 0.7, list = FALSE)
+trainX <- pmlTrain[inTrain,]
+testX <- pmlTrain[-inTrain,]
+
+trainY <- pmlY[inTrain]
+testY <- pmlY[-inTrain]
+
+p1 <- predict(m1, newdata = testX)
 ```
 
-The following plot shows predicted values for all the training data.
+The confusion matrix shows how accurately can we predict a particular result,
+how many times (and how) we get it wrong, and the classification error.
+The random forest algorithm provides an estimate
+computed using only out-of-bag samples from the training data:
+```{r, echo=FALSE}
+cm.auto <- m1$finalModel$confusion
+print(cm.auto)
+```
+To check the accuracy of these estimates, we compute a confusion matrix
+"by hand" by applying our prediction algorithm to the test data
+(that 30% of all data that we reserved at the beginning).
+```{r, echo=FALSE}
+cm <- table(p1, testY)
+cerr <- numeric(5)
+for (r in 1:5) {
+    cerr[r] <- 1 - cm[r, r]/sum(cm[r,])
+}
+cm <- cbind(cm ,cerr)
+colnames(cm)[6] <- "class.error"
+print(cm)
+```
+Classification errors can be up to a factor of two greater in this
+confusion matrix than in the one computed automatically by the algorithm,
+but nevertheless never become higher than about 1%.
+
+
+## Predictions
+
+The following plot shows predicted values for all the testing data.
 Different classes are given different colors;
 right and wrong predictions are distinguished by different shapes.
 ```{r, echo=FALSE}
-plotme <- pmlTrain %>%
+plotme <- testX %>%
     select(roll_belt, pitch_forearm) %>%
-    mutate(pred.class = p1, act.class = pmlY, result = pred.class == act.class)
+    mutate(pred.class = p1, act.class = testY, result = pred.class == act.class)
 g <- ggplot(plotme, aes(x = roll_belt, y = pitch_forearm))
 g <- g + geom_point(aes(colour = pred.class, shape = result), size = 2)
 print(g)
@@ -128,20 +160,21 @@ shows that these two variables are insufficient by themselves to produce
 a prediction.
 Choosing a different pair of variables gives a fresh perspective:
 ```{r, echo=FALSE}
-plotme <- pmlTrain %>%
+plotme <- testX %>%
     select(yaw_belt, magnet_dumbbell_z) %>%
-    mutate(pred.class = p1, act.class = pmlY, result = pred.class == act.class)
+    mutate(pred.class = p1, act.class = testY, result = pred.class == act.class)
 g <- ggplot(plotme, aes(x = yaw_belt, y = magnet_dumbbell_z))
 g <- g + geom_point(aes(colour = pred.class, shape = result), size = 2)
 # g <- g + ylim(-750, 750)
 print(g)
 ```
 
+
 ## Final comments
 
-To improve interpretability, it would be desirable to restrict the number
-of features included in the model to the bare minimum necessary to achieve
-an acceptable prediction accuracy.
+To improve interpretability and reduce overfitting,
+it would be desirable to restrict the number of features included in the model
+to the bare minimum necessary to achieve an acceptable prediction accuracy.
 
 The algorithms in the `RRF` (Regularized Random Forest) package offer
 automated feature selection, which may help reduce the total number of features.
